@@ -1,0 +1,59 @@
+---
+- name: Provision and Deploy Smart Irrigation Alert Dashboard
+  hosts: webservers
+  become: yes
+  vars:
+    app_name: smart-irrigation
+    app_port: 8085
+    docker_image: "smart-irrigation:v1.0"
+    install_dir: /opt/smart-irrigation
+
+  tasks:
+    - name: Ensure required deployment directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ install_dir }}"
+        - /var/log/irrigation
+
+    - name: Verify Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+      ignore_errors: yes
+
+    - name: Ensure old application container is stopped
+      command: docker stop {{ app_name }}
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Remove old application container
+      command: docker rm {{ app_name }}
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Run Smart Irrigation Docker Container
+      command: >
+        docker run -d
+        --name {{ app_name }}
+        --restart unless-stopped
+        -p {{ app_port }}:8085
+        {{ docker_image }}
+      register: container_run
+
+    - name: Wait for application HTTP endpoint to become healthy
+      uri:
+        url: "http://localhost:{{ app_port }}/api/sensors"
+        status_code: 200
+        timeout: 10
+      register: health_check
+      until: health_check.status == 200
+      retries: 5
+      delay: 3
+
+    - name: Display deployment success status
+      debug:
+        msg: "Application successfully provisioned and running on port {{ app_port }}!"
