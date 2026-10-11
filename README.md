@@ -53,3 +53,4 @@ Access the web dashboard in your browser:
 4. **Status Drill-Down:** Detailed view of zone history with one-click irrigation triggers.
 5. **Alert/Exception View:** Automated visual highlighting of zones below 30% moisture threshold.
 Develop Alert: Standard Monitoring Only 
+Feature Alert: High-Priority Thresholds Active 
