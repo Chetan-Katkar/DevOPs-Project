@@ -52,3 +52,4 @@ Access the web dashboard in your browser:
 3. **Summary Indicators:** Real-time KPI cards for Average Moisture, Active Zones, and Critical Alerts.
 4. **Status Drill-Down:** Detailed view of zone history with one-click irrigation triggers.
 5. **Alert/Exception View:** Automated visual highlighting of zones below 30% moisture threshold.
+Feature Alert: High-Priority Thresholds Active 
