@@ -27,14 +27,14 @@ pipeline {
         stage('Build & Compile') {
             steps {
                 echo 'Compiling source code with Maven...'
-                bat 'mvn clean compile'
+                sh 'mvn clean compile'
             }
         }
 
         stage('Automated Tests') {
             steps {
                 echo 'Executing unit and integration tests...'
-                bat 'mvn test'
+                sh 'mvn test'
             }
             post {
                 always {
@@ -46,7 +46,7 @@ pipeline {
         stage('Package Artifact') {
             steps {
                 echo 'Packaging executable Spring Boot JAR file...'
-                bat 'mvn package -DskipTests'
+                sh 'mvn package -DskipTests'
             }
             post {
                 success {

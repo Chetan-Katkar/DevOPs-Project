@@ -7,18 +7,15 @@
 
 ## 🐳 1. Build Docker Image
 ```bash
-# Package the application JAR first
-mvn clean package -DskipTests
-
-# Build the versioned container image
-docker build -t smart-irrigation:v1.0 .
+# Build the application and versioned image
+docker build --tag smart-irrigation:v1.0 .
 ```
 
 ---
 
 ## 🔍 2. Verify Image
 ```bash
-docker images | findstr smart-irrigation
+docker image ls smart-irrigation
 ```
 
 ---
@@ -38,7 +35,7 @@ Access the containerized app in browser at:
 docker logs irrigation-app
 
 # Inspect running status
-docker ps | findstr irrigation-app
+docker ps --filter name=irrigation-app
 
 # Stop container
 docker stop irrigation-app
