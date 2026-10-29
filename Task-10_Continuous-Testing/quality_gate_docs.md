@@ -15,15 +15,15 @@ flowchart TD
     B --> C[Quality Gate: mvn test]
     C -->|Tests Fail| D[❌ Pipeline HALTED: No Deployment]
     C -->|Tests Pass| E[✅ Package Spring Boot JAR]
-    E --> F[Deploy Application / Docker Container]
+    E --> F[Optional Docker deployment after agent access is configured]
 ```
 
 ---
 
-## 🔍 Defect Injection & Recovery Cycle
+## Current test evidence
 
-1. **Defect Introduction:** A bug was simulated in `SensorZone.java` where threshold comparison was inverted (`moistureLevel > 30` instead of `< 30`).
-2. **Automated Quality Gate Failure:** Jenkins ran `mvn test`. Test case `TC-02: Verify critical alert detection` failed with `AssertionError`.
-3. **Pipeline Protection:** Deployment stage was automatically skipped, protecting staging/production environments from regression.
-4. **Defect Resolution:** Threshold restored to `< 30.0`. Fixed code pushed with message `fix: correct moisture threshold comparison logic`.
-5. **Rerun Success:** Pipeline rerun executed all 5 tests successfully and proceeded to packaging and deployment.
+The current suite contains five Spring MockMvc API tests. Jenkins build #2 reported all five passing, published the JUnit report, and archived the packaged JAR.
+
+Five Selenium UI tests are now included under `mvn -Pselenium test`. They cover dashboard load, crop search, critical-status filtering, zone creation, and irrigation recovery. They are optional in Jenkins until Chrome/Chromium or a Selenium Grid is available on the agent; enable `RUN_SELENIUM` after that setup.
+
+No defect-injection/failure screenshot is recorded as completed evidence in this repository. For the demo, retain the actual failed build and its console/test report if you perform that exercise.

@@ -14,19 +14,27 @@ The automated test suite verifies the end-to-end functionality, reliability, and
 
 | Test Case ID | Test Name | Target Component | Expected Result |
 |:------------|:----------|:-----------------|:----------------|
-| **TC-01** | Initial Sensor Feed Ingestion | `/api/sensors` | Returns status 200 OK with $\ge 5$ active zones populated. |
-| **TC-02** | Low-Moisture Alert Detection | `/api/alerts` | Identifies zones with moisture $< 30\%$ and generates critical alert severity. |
-| **TC-03** | Dynamic Zone Creation | `/api/sensors` (POST) | Successfully persists new zone and calculates correct status badge. |
-| **TC-04** | Global Summary Metrics | `/api/summary` | Correctly aggregates average moisture and counts critical vs optimal zones. |
-| **TC-05** | One-Click Irrigation Recovery | `/api/sensors/{id}/irrigate` | Updates moisture to $75\%$, restoring zone status to normal. |
+| **TC-01** | Dashboard startup | Browser dashboard | Shows five seeded zones and the matching summary cards. |
+| **TC-02** | Search by crop | Search field | Searching for Wheat displays the matching zone only. |
+| **TC-03** | Status filter | Status selector | Critical filter displays only zones marked CRITICAL. |
+| **TC-04** | Add a zone | Add Zone dialog | Submitting a zone displays it in the table. |
+| **TC-05** | Irrigation recovery | Zone details dialog | Irrigating the Wheat zone updates it to 75% and SATURATED. |
 
 ---
 
 ## ⚙️ 3. Test Execution Command
-Run the test suite locally via Maven:
+The API tests run by default:
 ```bash
 mvn test
 ```
 
-Test reports and surefire XML logs are archived automatically at:
-`target/surefire-reports/`
+The Selenium browser tests are isolated in the `selenium` Maven profile, so normal builds do not require a browser:
+```bash
+mvn -Pselenium test
+```
+
+Install Chrome or Chromium on the test agent. Selenium Manager can locate/download the matching driver when the agent has network access. Alternatively set `SELENIUM_REMOTE_URL` to a reachable Selenium Grid URL and `SELENIUM_HOST` to the hostname that the Grid browser uses to reach the test server. Jenkins runs this profile only when `RUN_SELENIUM` is enabled.
+
+API and browser test reports are written to `target/surefire-reports/`. Browser screenshots captured on test failures are saved under `target/selenium-failures/`.
+
+**Execution status:** the five API tests have passed in Jenkins. The Selenium tests are implemented but still need to be run on an agent with Chrome/Chromium or Selenium Grid.

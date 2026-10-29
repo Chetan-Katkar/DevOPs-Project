@@ -2,8 +2,9 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: 'Deployment Environment')
-        string(name: 'APP_PORT', defaultValue: '8085', description: 'Application Port')
+        booleanParam(name: 'RUN_SELENIUM', defaultValue: false, description: 'Run browser UI tests (requires Chrome/Chromium or Selenium Grid on this agent)')
+        booleanParam(name: 'DEPLOY_DOCKER', defaultValue: false, description: 'Build and deploy the Docker image (requires this Jenkins agent to access a Docker daemon)')
+        string(name: 'DEPLOY_PORT', defaultValue: '8087', description: 'Host port for the Jenkins-managed demo container')
     }
 
     tools {
@@ -14,6 +15,8 @@ pipeline {
     environment {
         APP_NAME = 'smart-irrigation-dashboard'
         VERSION = '1.0.0'
+        DOCKER_IMAGE = "smart-irrigation:${BUILD_NUMBER}"
+        DEPLOY_CONTAINER = 'smart-irrigation-jenkins'
     }
 
     stages {
@@ -43,6 +46,20 @@ pipeline {
             }
         }
 
+        stage('Selenium UI Tests') {
+            when {
+                expression { params.RUN_SELENIUM }
+            }
+            steps {
+                sh 'mvn --batch-mode -Pselenium test'
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+
         stage('Package Artifact') {
             steps {
                 echo 'Packaging executable Spring Boot JAR file...'
@@ -55,10 +72,53 @@ pipeline {
             }
         }
 
-        stage('Deploy Application') {
+        stage('Docker Build and Deploy') {
+            when {
+                expression { params.DEPLOY_DOCKER }
+            }
             steps {
-                echo "Deploying ${APP_NAME} to ${params.DEPLOY_ENV} on port ${params.APP_PORT}..."
-                echo "Deployment successfully executed. Verified endpoint on http://localhost:${params.APP_PORT}"
+                sh '''
+                    set -eu
+                    case "$DEPLOY_PORT" in
+                        ''|*[!0-9]*) echo "DEPLOY_PORT must be a number" >&2; exit 2 ;;
+                    esac
+                    if [ "$DEPLOY_PORT" -lt 1 ] || [ "$DEPLOY_PORT" -gt 65535 ]; then
+                        echo "DEPLOY_PORT must be between 1 and 65535" >&2
+                        exit 2
+                    fi
+
+                    docker info >/dev/null
+                    docker build --tag "$DOCKER_IMAGE" .
+
+                    previous_image="$(docker inspect --format '{{.Image}}' "$DEPLOY_CONTAINER" 2>/dev/null || true)"
+                    docker rm --force "$DEPLOY_CONTAINER" >/dev/null 2>&1 || true
+                    docker run --detach --name "$DEPLOY_CONTAINER" --restart unless-stopped \\
+                        --publish "${DEPLOY_PORT}:8085" "$DOCKER_IMAGE"
+
+                    healthy=0
+                    attempt=1
+                    while [ "$attempt" -le 10 ]; do
+                        if curl --fail --silent --show-error "http://127.0.0.1:${DEPLOY_PORT}/api/summary" >/dev/null; then
+                            healthy=1
+                            break
+                        fi
+                        sleep 3
+                        attempt=$((attempt + 1))
+                    done
+
+                    if [ "$healthy" -ne 1 ]; then
+                        docker logs --tail 100 "$DEPLOY_CONTAINER" || true
+                        docker rm --force "$DEPLOY_CONTAINER" >/dev/null 2>&1 || true
+                        if [ -n "$previous_image" ]; then
+                            docker run --detach --name "$DEPLOY_CONTAINER" --restart unless-stopped \\
+                                --publish "${DEPLOY_PORT}:8085" "$previous_image" || true
+                        fi
+                        echo "Deployment health check failed; attempted to restore the previous container image." >&2
+                        exit 1
+                    fi
+
+                    echo "Container is healthy at http://localhost:${DEPLOY_PORT}"
+                '''
             }
         }
     }

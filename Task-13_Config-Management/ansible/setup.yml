@@ -1,59 +1,159 @@
 ---
-- name: Provision and Deploy Smart Irrigation Alert Dashboard
+- name: Provision and deploy the Smart Irrigation dashboard
   hosts: webservers
-  become: yes
+  become: false
+  gather_facts: true
+
   vars:
     app_name: smart-irrigation
-    app_port: 8085
-    docker_image: "smart-irrigation:v1.0"
-    install_dir: /opt/smart-irrigation
+    app_port: "8087"
+    container_port: "8085"
+    docker_image: smart-irrigation:v1.0
+    install_dir: "{{ ansible_env.HOME }}/.local/share/smart-irrigation"
+    log_dir: "{{ ansible_env.HOME }}/.local/state/smart-irrigation"
 
   tasks:
-    - name: Ensure required deployment directories exist
-      file:
+    - name: Ensure application directories exist
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        mode: '0755'
+        mode: "0755"
       loop:
         - "{{ install_dir }}"
-        - /var/log/irrigation
+        - "{{ log_dir }}"
 
-    - name: Verify Docker service is running
-      service:
-        name: docker
-        state: started
-        enabled: yes
-      ignore_errors: yes
-
-    - name: Ensure old application container is stopped
-      command: docker stop {{ app_name }}
-      ignore_errors: yes
+    - name: Confirm Docker CLI and daemon are available to this Ansible user
+      ansible.builtin.command: docker info
       changed_when: false
 
-    - name: Remove old application container
-      command: docker rm {{ app_name }}
-      ignore_errors: yes
+    - name: Inspect the requested image on the deployment host
+      ansible.builtin.command:
+        argv:
+          - docker
+          - image
+          - inspect
+          - "{{ docker_image }}"
+      register: image_inspect
       changed_when: false
 
-    - name: Run Smart Irrigation Docker Container
-      command: >
-        docker run -d
-        --name {{ app_name }}
-        --restart unless-stopped
-        -p {{ app_port }}:8085
-        {{ docker_image }}
-      register: container_run
+    - name: Inspect the current application container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - "{{ app_name }}"
+      register: container_inspect
+      failed_when: false
+      changed_when: false
 
-    - name: Wait for application HTTP endpoint to become healthy
-      uri:
-        url: "http://localhost:{{ app_port }}/api/sensors"
+    - name: Record the current container and image identifiers
+      ansible.builtin.set_fact:
+        current_container: "{{ (container_inspect.stdout | from_json | first) if container_inspect.rc == 0 else {} }}"
+        desired_image_id: "{{ (image_inspect.stdout | from_json | first).Id }}"
+
+    - name: Decide whether the managed container needs replacement
+      ansible.builtin.set_fact:
+        previous_image_id: "{{ current_container.get('Image', '') }}"
+        previous_was_running: "{{ current_container.get('State', {}).get('Running', false) }}"
+        deployment_needed: >-
+          {{
+            container_inspect.rc != 0 or
+            not current_container.get('State', {}).get('Running', false) or
+            current_container.get('Image', '') != desired_image_id or
+            ((((current_container.get('HostConfig', {}).get('PortBindings') or {}).get(container_port ~ '/tcp', []) | first | default({})).get('HostPort', '')) != app_port) or
+            current_container.get('HostConfig', {}).get('RestartPolicy', {}).get('Name', '') != 'unless-stopped'
+          }}
+
+    - name: Replace only the project-managed application container when its state is stale
+      when: deployment_needed | bool
+      block:
+        - name: Remove the existing container with this project-specific name
+          ansible.builtin.command:
+            argv:
+              - docker
+              - rm
+              - --force
+              - "{{ app_name }}"
+          when: container_inspect.rc == 0
+          changed_when: true
+
+        - name: Start the desired application image
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --detach
+              - --name
+              - "{{ app_name }}"
+              - --restart
+              - unless-stopped
+              - --label
+              - com.smart-irrigation.managed-by=ansible
+              - --publish
+              - "{{ app_port }}:{{ container_port }}"
+              - "{{ docker_image }}"
+          changed_when: true
+
+        - name: Wait for the application health endpoint
+          ansible.builtin.uri:
+            url: "http://127.0.0.1:{{ app_port }}/api/summary"
+            method: GET
+            status_code: 200
+            timeout: 10
+          register: deployment_health
+          until: deployment_health.status | default(0) == 200
+          retries: 10
+          delay: 3
+
+      rescue:
+        - name: Remove the failed deployment container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - rm
+              - --force
+              - "{{ app_name }}"
+          failed_when: false
+          changed_when: false
+
+        - name: Restore the previously running image after a failed health check
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --detach
+              - --name
+              - "{{ app_name }}"
+              - --restart
+              - unless-stopped
+              - --label
+              - com.smart-irrigation.managed-by=ansible
+              - --publish
+              - "{{ app_port }}:{{ container_port }}"
+              - "{{ previous_image_id }}"
+          when:
+            - previous_was_running | bool
+            - previous_image_id | length > 0
+          failed_when: false
+          changed_when: false
+
+        - name: Report deployment failure
+          ansible.builtin.fail:
+            msg: >-
+              Deployment did not pass its HTTP health check. A rollback to the previous
+              running image was attempted when one existed. Inspect Docker logs before retrying.
+
+    - name: Check the application endpoint even when no container changes were needed
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_port }}/api/summary"
+        method: GET
         status_code: 200
         timeout: 10
-      register: health_check
-      until: health_check.status == 200
-      retries: 5
+      register: final_health
+      until: final_health.status | default(0) == 200
+      retries: 10
       delay: 3
 
-    - name: Display deployment success status
-      debug:
-        msg: "Application successfully provisioned and running on port {{ app_port }}!"
+    - name: Report the verified application URL
+      ansible.builtin.debug:
+        msg: "Smart Irrigation is healthy at http://127.0.0.1:{{ app_port }}"

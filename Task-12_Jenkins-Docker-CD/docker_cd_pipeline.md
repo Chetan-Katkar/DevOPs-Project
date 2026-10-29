@@ -5,46 +5,29 @@
 
 ---
 
-## 🚀 Continuous Delivery to Docker Registry Workflow
+## 🚀 Local Jenkins-to-Docker Deployment
 
 ```mermaid
 flowchart LR
-    A[Git Commit to main/develop] --> B[Jenkins CI: Build & Test]
-    B --> C[Docker Image Build: smart-irrigation:${BUILD_NUMBER}]
-    C --> D[Docker Hub Registry Push]
-    D --> E[Pull & Run Container on Target Server]
-    E --> F[Health Check Verification]
+    A[Git commit] --> B[Jenkins checkout, compile, API tests, package]
+    B --> C{DEPLOY_DOCKER enabled?}
+    C -->|No| D[CI complete]
+    C -->|Yes| E[Build versioned local image]
+    E --> F[Run Jenkins-managed container]
+    F --> G[HTTP health check]
+    G -->|Failed| H[Try previous image]
 ```
 
 ---
 
-## 📦 Extended Jenkinsfile Stage for Docker CD
+The repository `Jenkinsfile` builds and tests the application on each run. Docker deployment is a real but opt-in stage because the Jenkins service must first be given access to a Docker daemon. It uses the image tag `smart-irrigation:${BUILD_NUMBER}`, container name `smart-irrigation-jenkins`, and host port `8087` by default. The port is separate from the manually demonstrated container on `8086`.
 
-```groovy
-stage('Docker Build & Registry Push') {
-    steps {
-        echo "Building versioned Docker image: smart-irrigation:${BUILD_NUMBER}..."
-        bat "docker build -t chetankatkar/smart-irrigation:${BUILD_NUMBER} -t chetankatkar/smart-irrigation:latest ."
-        
-        echo "Pushing Docker image to Docker Hub Registry..."
-        // bat "docker push chetankatkar/smart-irrigation:${BUILD_NUMBER}"
-        // bat "docker push chetankatkar/smart-irrigation:latest"
-    }
-}
-
-stage('Containerized Deployment') {
-    steps {
-        echo "Deploying containerized application on port 8086..."
-        bat "docker stop irrigation-app || exit 0"
-        bat "docker rm irrigation-app || exit 0"
-        bat "docker run -d -p 8086:8085 --name irrigation-app chetankatkar/smart-irrigation:latest"
-    }
-}
-```
+Enable **DEPLOY_DOCKER** when starting a Jenkins build after the Jenkins agent can successfully run `docker info`. Set **DEPLOY_PORT** to a free port if `8087` is occupied. The stage builds a local image, replaces only its own named container, checks `/api/summary`, and attempts to restore the previous image if the health check fails. It does not publish to Docker Hub.
 
 ---
 
 ## 🎯 Verification
-- **Docker Registry:** Image tagged with automated build number and `latest`.
-- **Zero-Downtime Rolling Update:** Container gracefully stops previous instance and binds new version to port 8086.
-- **Port Isolation:** Application runs isolated inside the container environment.
+- **Local image:** Tagged with the Jenkins build number.
+- **Health gate:** The pipeline fails if `/api/summary` does not return HTTP 200.
+- **Rollback attempt:** On health-check failure, the stage tries to restart the prior container image.
+- **Current status:** Jenkins-to-Docker execution remains unverified until daemon access is configured for the Jenkins service.

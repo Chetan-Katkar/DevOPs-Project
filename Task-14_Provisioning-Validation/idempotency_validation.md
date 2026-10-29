@@ -1,65 +1,45 @@
-# Automated Provisioning & Idempotency Validation (Task 14)
+# Provisioning and Reliability Validation (Task 14)
 
 **Project:** Smart Irrigation Alert Dashboard  
-**Student:** Chetan Katkar | **Roll No:** 23102A0024 | **Class:** BE CMPN-A  
+**Student:** Chetan Katkar | **Roll No:** 23102A0024 | **Class:** BE CMPN-A
 
----
+## What the playbook is designed to verify
 
-## 🔁 1. Demonstration of Ansible Idempotency
+The Ansible playbook under `Task-13_Config-Management/ansible/setup.yml` creates writable application directories, checks Docker and the requested local image, and compares the current container with the desired image, running state, host port, and restart policy. It leaves a matching container running on later runs. If a deployment health check fails, it attempts to restore the previously running image.
 
-**What is Idempotency?**  
-Idempotency is the property of an operation whereby it can be applied multiple times without changing the result beyond the initial application. In Ansible, running a playbook on an already configured node produces `changed=0` (all tasks report `ok`).
+The playbook has not yet been executed on this Ubuntu installation because `ansible-playbook` is not installed in the current environment. Record the real command output before presenting first-run/second-run counts or claiming rollback was demonstrated.
 
-### Run 1: Initial Provisioning
+## Run the validation on Ubuntu
+
+From the repository root, install Ansible if needed and build the local image:
+
 ```bash
+sudo apt update
+sudo apt install -y ansible
+docker info
+docker build -t smart-irrigation:v1.0 .
+```
+
+Check the playbook syntax, then run it twice:
+
+```bash
+cd Task-13_Config-Management/ansible
+ansible-playbook -i inventory.ini --syntax-check setup.yml
+ansible-playbook -i inventory.ini setup.yml
 ansible-playbook -i inventory.ini setup.yml
 ```
-**Output:**
-```text
-PLAY [Provision and Deploy Smart Irrigation Alert Dashboard] *******************
-TASK [Ensure required deployment directories exist] ****************************
-changed: [localhost]
-TASK [Verify Docker service is running] ****************************************
-ok: [localhost]
-TASK [Run Smart Irrigation Docker Container] ***********************************
-changed: [localhost]
-TASK [Wait for application HTTP endpoint to become healthy] ********************
-ok: [localhost]
 
-PLAY RECAP *********************************************************************
-localhost                  : ok=5    changed=2    unreachable=0    failed=0
-```
+Save the terminal output or use `script -a task14-validation.txt` before running the commands. On the second run, confirm the recap reports no changes to the already-correct container. Existing writable directories may make the first-run `changed` total lower than a fresh machine.
 
-### Run 2: Idempotent Verification Run (Second Run)
+## Verify service and container state
+
 ```bash
-ansible-playbook -i inventory.ini setup.yml
+docker ps --filter name=smart-irrigation
+curl -fsS http://localhost:8087/api/summary
 ```
-**Output:**
-```text
-PLAY [Provision and Deploy Smart Irrigation Alert Dashboard] *******************
-TASK [Ensure required deployment directories exist] ****************************
-ok: [localhost]
-TASK [Verify Docker service is running] ****************************************
-ok: [localhost]
-TASK [Run Smart Irrigation Docker Container] ***********************************
-ok: [localhost]
-TASK [Wait for application HTTP endpoint to become healthy] ********************
-ok: [localhost]
 
-PLAY RECAP *********************************************************************
-localhost                  : ok=5    changed=0    unreachable=0    failed=0
-```
-Notice: **`changed=0`**! The system recognizes the desired state already exists and makes zero unnecessary modifications.
+The endpoint should return JSON with five zones. Keep the actual terminal output or screenshots as evidence.
 
----
+## Rollback demonstration
 
-## ⏪ 2. Rollback & Disaster Recovery Demonstration
-
-If a defect is detected in a new release (`v2.0`):
-1. **Automated Rollback Command:**
-   ```bash
-   docker stop irrigation-app
-   docker rm irrigation-app
-   docker run -d -p 8085:8085 --name irrigation-app smart-irrigation:v1.0
-   ```
-2. **Verification:** Running `curl http://localhost:8085/api/sensors` confirms the service is immediately restored to the stable `v1.0` state with zero data loss.
+To validate rollback safely, keep an earlier working image locally, build/tag a test image with a different version, and use a disposable port/host. Do not stop the manually demonstrated `irrigation-demo` container. Capture the failed health check, the play recap, `docker ps`, and the restored endpoint. The playbook only attempts automatic rollback when the prior named container was running; this behavior still requires a live run to demonstrate.
